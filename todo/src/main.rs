@@ -73,7 +73,7 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
 
-    if args.len() > 2 {
+    if args.len() > 1 {
         let command = &args[1];
         match command.as_str() {
             "add" => {
@@ -84,11 +84,16 @@ fn main() {
                 file.write_all(json.as_bytes()).unwrap();
                 println!("Task added!");
             }
-            // "list" => {
-            //     for (index, task) in data.tasks.iter().enumerate() {
-            //         println!("[{}] - {}", index, task.text);
-            //     }
-            // }
+            "list" => {
+                for (index, task) in data.tasks.iter().enumerate() {
+                    println!(
+                        "[{}] - {} (created: {})",
+                        index,
+                        task.text,
+                        task.created_at.format("%Y-%m-%d %H:%M")
+                    );
+                }
+            }
             _ => {
                 println!("Unknown command: {}", command);
             }
