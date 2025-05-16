@@ -1,104 +1,142 @@
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
-use std::env;
-use std::io::Write;
-use std::{fs::File, io::Read, path::Path};
+use std::{
+    env,
+    fs::{File, OpenOptions},
+    io::{Read, Write},
+    path::Path,
+};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 struct Task {
     id: usize,
     text: String,
-    completed: bool,
+    is_completed: bool,
     created_at: DateTime<Local>,
     completed_at: Option<DateTime<Local>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 struct TodoList {
     tasks: Vec<Task>,
     next_id: usize,
 }
 
-impl TodoList {
-    fn new() -> Self {
-        TodoList {
-            tasks: Vec::new(),
-            next_id: 1,
-        }
-    }
-
-    fn add_task(&mut self, title: &str) {
-        let task = Task {
-            id: self.next_id,
-            text: title.to_string(),
-            completed: false,
-            created_at: Local::now(),
-            completed_at: None,
-        };
-        self.next_id += 1;
-        self.tasks.push(task);
-    }
-
-    fn load_data(file_name: &str) -> Result<Self, String> {
-        if !Path::new(file_name).exists() {
-            println!("New file has been created!");
-            File::create(file_name).map_err(|e| format!("Failed to create file: {}", e))?;
-        }
-        let mut file =
-            File::open(file_name).map_err(|e| format!("Failed to Open the file: {}", e))?;
-
-        let mut content = String::new();
-        file.read_to_string(&mut content)
-            .map_err(|e| format!("Failed to create the file: {}", e))?;
-
-        if content.trim().is_empty() {
-            println!("File is empty!");
-            return Ok(TodoList::new());
-        }
-
-        serde_json::from_str(&content).map_err(|e| format!("Failed to deserialize tasks: {}", e))
-    }
-}
-
 fn main() {
     let file_name = "todos.json";
 
-    let mut data: TodoList = match TodoList::load_data(file_name) {
+    // File Check & Create if not exist!
+    if !Path::new(file_name).exists() {
+        File::create(file_name).unwrap();
+        println!("File {file_name} did not exist! so it has been created!");
+    }
+
+    // Read File and Data
+    let mut file = File::open(file_name).unwrap();
+    let mut content = String::new();
+    file.read_to_string(&mut content).unwrap();
+
+    if content.trim().is_empty() {
+        println!("File is empty!");
+    }
+
+    // Parse Data to string
+    let mut todos_data = match serde_json::from_str(&content) {
         Ok(list) => list,
-        Err(err) => {
-            eprintln!("Error loading todo list: {}", err);
-            TodoList::new()
-        }
+        Err(_) => TodoList {
+            tasks: Vec::new(),
+            next_id: 1,
+        },
     };
 
+    // Arguments for Data Operations!
     let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        println!("  list               -  to list all tasks!");
+        println!("  add <task>         -  to add a new task!");
+        println!("  complete <task>    -  mark a task as completed!");
+        println!("  delete <task>      -  delete a task!");
+        return;
+    }
 
-    if args.len() > 1 {
-        let command = &args[1];
-        match command.as_str() {
-            "add" => {
-                let text = args[2..].join(" ");
-                data.add_task(&text);
-                let json = serde_json::to_string_pretty(&data).unwrap();
-                let mut file = File::create(file_name).unwrap();
-                file.write_all(json.as_bytes()).unwrap();
-                println!("Task added!");
+    let command = &args[1];
+    match command.as_str() {
+        "add" => {
+            if args.len() < 3 {
+                println!("Not enough arguments");
+                return;
             }
-            "list" => {
-                for (index, task) in data.tasks.iter().enumerate() {
+            let text = args[2..].join(" ");
+            let task = Task {
+                id: todos_data.next_id,
+                text: text,
+                is_completed: false,
+                created_at: Local::now(),
+                completed_at: None,
+            };
+            todos_data.tasks.push(task);
+            todos_data.next_id += 1;
+            println!("New Task added!");
+        }
+        "complete" => {
+            if args.len() < 3 {
+                println!("Error: Missing Task ID");
+                return;
+            }
+            let id = args[2].parse::<usize>().unwrap();
+            if let Some(task) = todos_data.tasks.iter_mut().find(|task| task.id == id) {
+                task.is_completed = true;
+                task.completed_at = Some(Local::now());
+                println!("Task has completed!");
+            } else {
+                println!("Task with id {} not found", id);
+            }
+        }
+        "delete" => {
+            if args.len() < 3 {
+                println!("Error: Missing Task ID");
+                return;
+            }
+            let id = args[2].parse::<usize>().unwrap();
+            let length = todos_data.tasks.len();
+            todos_data.tasks.retain(|task| task.id != id);
+            if todos_data.tasks.len() < length {
+                println!("Task has been deleted!")
+            } else {
+                println!("Task with id {} nto found!", id)
+            }
+        }
+        "list" => {
+            if todos_data.tasks.is_empty() {
+                println!("No task found!");
+            } else {
+                for task in &todos_data.tasks {
+                    let status = if task.is_completed { "✔ " } else { " " };
                     println!(
-                        "[{}] - {} (created: {})",
-                        index,
+                        "[{}] - {}{} (created: {}) {}",
+                        task.id,
+                        status,
                         task.text,
-                        task.created_at.format("%Y-%m-%d %H:%M")
+                        task.created_at.format("%Y-%m-%d %H:%M %A"),
+                        if let Some(completed_at) = task.completed_at {
+                            format!(" (completed: {})", completed_at.format("%Y-%m-%d %H:%M"))
+                        } else {
+                            String::new()
+                        }
                     );
                 }
             }
-            _ => {
-                println!("Unknown command: {}", command);
-            }
         }
-    } else {
-        println!("  add <task>       - Add a new task");
+        _ => println!("Unknown command!"),
     }
+
+    // Always save to the file!
+    let json_parsed = serde_json::to_string_pretty(&todos_data).unwrap();
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(file_name)
+        .unwrap();
+    file.write_all(json_parsed.as_bytes()).unwrap();
 }
